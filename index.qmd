@@ -127,9 +127,12 @@ df.score.state <- SharedData$new(df.means.state, key = ~entidad_federativa, grou
 
 # Situación a nivel nacional
 
+
 **Datos con corte al `r {Sys.Date()}`**
 
-A continuación se muestran los datos por entidad federativa y a nivel nacional sobre la evaluación presentada por las personas. En total, se han registrado **`r {sum(n.states$n)}`** respuestas. El promedio general obtenido por las personas capacitadas es de **`r {round(mean(df$score),2)}`**.
+A continuación se muestran los datos por entidad federativa y a nivel nacional sobre la evaluación presentada por las personas. El cuestionario consta de **22 preguntas**, divididas en dos módulos: **agrícola y pecuario** (con 11 preguntas cada uno).
+
+En total, se han registrado **`r {sum(n.states$n)}`** respuestas. El promedio general obtenido por las personas capacitadas es de **`r {round(mean(df$score),2)}`**.
 
 **Respuestas obtenidad por entidad federativa**
 
@@ -148,7 +151,7 @@ n.states.tab |>
   reactable()
 ```
 
-Por tipo de modalidad, el promedio de las personas que tomaron la capacitación es:
+Las capacitaciones han sido impartidas, de acuerdo con las características del territorio, disponibilidad de recursos y accesibilidad, por tipo de modalidad. El promedio de las personas que tomaron la capacitación es (de acuerdo con la modalidad):
 
 - **Presencial**: **`r {round(df.means$mean[df.means$modalidad=="Presencialmente"],1)}`**
 
@@ -170,6 +173,7 @@ df.means |>
            ))
 
 ```
+Por módulo (agrícola, pecuario), los resultados también pueden compararse por tipo de modalidad. Se observa que, a nivel nacional, los resultados en el módulo pecuario son más bajos que los registrados para el módulo agrícola.
 
 ```{r Calificación por módulo, echo=FALSE, message=FALSE, warning=FALSE}
 df |>
@@ -189,6 +193,8 @@ df |>
   
 
 ```
+
+El mapa de calor se interpreta conforme a la fila (estado) y columna (pregunta). Los colores más oscuros (morado), representan un mayor número de respuestas correctas para la pregunta señalada en la columna o al pasar el cursor sobre el gráfico. Por ejemplo, **la primera fila, primera columna**, señala que, **en Zacatecas**, el **100%** de las personas que respondieron el cuestionario contestaron correctamente la **pregunta 1**, sobre cómo se calcula el rendimiento.
 
 ```{r heat map, echo=FALSE, message=FALSE, warning=FALSE}
 graph.hm <- df.hm |>
@@ -228,6 +234,8 @@ ggplotly(graph.hm, tooltip="text")
 ```
 
 # Estadísticas por estado
+
+**Importante**: seleccione un estado para visualizar los gráficos correctamente. 
 
 ```{r Filtro Entidad, echo=FALSE}
 filter_select(id = "filtro_entidad", label = "Entidad", sharedData = df.score, group = ~entidad_federativa, multiple = FALSE)
