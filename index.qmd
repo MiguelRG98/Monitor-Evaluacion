@@ -14,8 +14,9 @@ editor: source
 rm(list = ls())
 # 0. Leer librerías.
 library(pacman)
-p_load("tidyverse", "plotly", "flexdashboard", "reactable", "openxlsx", "hrbrthemes", "scales",
-       "janitor", "stringr", "stringi", "usethis", "crosstalk")
+p_load("tidyverse", "plotly", "flexdashboard", "reactable", "openxlsx", "hrbrthemes", "scales", "jsonlite",
+       "janitor", "stringr", "stringi", "usethis", "crosstalk", 
+       "sf", "rmapshaper")
 
 # 1. Enlace para tener datos actualizados 'todo el tiempo'. 
 url_fao_data <- "https://docs.google.com/spreadsheets/d/e/2PACX-1vSGcdqxColk_BnF7NgrgP6hzUnkFmA-rQfPE6ptC8FsLWPYzXoqq_2TCdnTj8Cm5l2POt0Lmf9YaXwW/pub?output=xlsx"
@@ -150,6 +151,66 @@ n.states.tab |>
   rename("Entidad"="entidad_federativa", "Respuestas"="n") |>
   reactable()
 ```
+
+
+```{r Mapa, echo=FALSE}
+
+mx.map <- read_sf("/Users/miguelrosales/Desktop/Agricultura/MapasGeneral/Ents/00ent.shp", options = "ENCODING=LATIN1")
+
+n.state.b <- n.states.tab |> mutate(ent = case_when(
+  entidad_federativa == "Aguascalientes" ~ "01",
+  entidad_federativa == "Baja California" ~ "02",
+  entidad_federativa == "Baja California Sur" ~ "03",
+  entidad_federativa == "Campeche" ~ "04",
+  entidad_federativa == "Coahuila de Zaragoza" ~ "05",
+  entidad_federativa == "Colima" ~ "06",
+  entidad_federativa == "Chiapas" ~ "07",
+  entidad_federativa == "Chihuahua" ~ "08",
+  entidad_federativa == "Ciudad de México" ~ "09",
+  entidad_federativa == "Durango" ~ "10",
+  entidad_federativa == "Guanajuato" ~ "11",
+  entidad_federativa == "Guerrero" ~ "12",
+  entidad_federativa == "Hidalgo" ~ "13",
+  entidad_federativa == "Jalisco" ~ "14",
+  entidad_federativa == "México" ~ "15",
+  entidad_federativa == "Michoacán de Ocampo" ~ "16",
+  entidad_federativa == "Morelos" ~ "17",
+  entidad_federativa == "Nayarit" ~ "18",
+  entidad_federativa == "Nuevo León" ~ "19",
+  entidad_federativa == "Oaxaca" ~ "20",
+  entidad_federativa == "Puebla" ~ "21",
+  entidad_federativa == "Querétaro de Arteaga" ~ "22",
+  entidad_federativa == "Quintana Roo" ~ "23",
+  entidad_federativa == "San Luis Potosí" ~ "24",
+  entidad_federativa == "Sinaloa" ~ "25",
+  entidad_federativa == "Sonora" ~ "26",
+  entidad_federativa == "Tabasco" ~ "27",
+  entidad_federativa == "Tamaulipas" ~ "28",
+  entidad_federativa == "Tlaxcala" ~ "29",
+  entidad_federativa == "Veracruz de Ignacio de la Llave" ~ "30",
+  entidad_federativa == "Yucatán" ~ "31",  # Código oficial INEGI
+  entidad_federativa == "Zacatecas" ~ "32" # Código oficial INEGI
+))
+
+mx.map <- left_join(mx.map, n.state.b, join_by(CVEGEO==ent))
+mx.ent <- ms_simplify(mx.map, keep = 0.01, keep_shapes = TRUE)
+
+mx.ent.centros <- st_centroid(mx.ent)
+mx.ent$X <- st_coordinates(mx.ent.centros)[,"X"]
+mx.ent$Y <- st_coordinates(mx.ent.centros)[,"Y"]
+
+mx.ent |> 
+  ggplot()+
+  geom_sf(aes(fill=`Calificación
+         promedio`)) +
+  scale_fill_gradient(name = "Calificación\npromedio", na.value = "gray90", low = "lightblue", high="darkblue")+
+  geom_point(aes(x=X, y=Y, size = n), color="green")+
+  scale_size(name="Respuestas\nrecibidas", breaks = c(10,30,50,70))+
+  theme_void()
+
+
+```
+
 
 Las capacitaciones han sido impartidas, de acuerdo con las características del territorio, disponibilidad de recursos y accesibilidad, por tipo de modalidad. El promedio de las personas que tomaron la capacitación es (de acuerdo con la modalidad):
 
