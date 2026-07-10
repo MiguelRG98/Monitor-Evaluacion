@@ -1,16 +1,17 @@
 ---
 title: "Tablero de Evaluación de Impacto"
 subtitle: "Monitoreo en Tiempo Real - FAO"
-format: 
-  html:
-    toc: true
-    toc-location: left
-    theme: cosmo
-    code-fold: true
-editor: source
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: scroll
+    theme:
+      version: 4
+      bootswatch: cosmo
+      primary: "#0062B8" # Azul oficial de la FAO
 ---
 
-```{r Procesamiento datos, include=FALSE}
+```{r setup, include=FALSE}
 rm(list = ls())
 # 0. Leer librerías.
 library(pacman)
@@ -58,20 +59,17 @@ df <-  df |>
          p_21= ifelse(cual_es_la_formula_correcta_para_calcular_el_volumen_total_en_pie=="(Número de cabezas x peso promedio en pie)/1000",1,0),
          p_22= ifelse(si_al_revisar_la_informacion_de_un_rastro_municipal_notas_que_el_peso_promedio_por_cabeza_de_los_bovinos_sacrificados_aumento_drasticamente_respecto_al_mes_anterior_cual_es_la_accion_de_validacion_correcta_antes_de_capturar=="Investigar con los productores o el rastro si hubo introducción de razas de mayor peso, cambios en la dieta o engorda, y justificarlo en las observaciones del sistema",1,0))
 
-# Evaluate each question individually----
+# Evaluar preguntas por separado
 df <- df |>
   mutate(agricola = rowSums(pick(p_1:p_11), na.rm = T),
          pecuario = rowSums(pick(p_12:p_22), na.rm = T))
                                                 
-# Results by question and results by area----
+# Resultados agregados
 df.resumen <- df |> 
   group_by(entidad_federativa) |>
   summarise(across(p_1:p_22, \(x) sum(x, na.rm = T)),
             mean_agri = mean(agricola, na.rm=T),
             mean_pec = mean(pecuario, na.rm=T))
-
-
-## We need to add total of states to evaluate the wrong percentage----
 
 n.states <- df |>
   group_by(entidad_federativa) |>
@@ -82,69 +80,55 @@ df.resumen <- left_join(df.resumen, n.states)
 df.resumen <- df.resumen |>
   mutate(across(c(p_1:p_22), \(x) x/n, .names = "{.col}_")) 
 
-## Graph of pecuario-agricola per state----
-df.resumen.tc <- df |> 
-  group_by(entidad_federativa, treatment) |>
-  summarise(across(p_1:p_22, \(x) sum(x, na.rm = T)),
-            mean_agri = mean(agricola, na.rm=T),
-            mean_pec = mean(pecuario, na.rm=T)) |>
-  select(entidad_federativa, treatment, mean_agri, mean_pec) |>
-  pivot_longer(cols = c(mean_agri, mean_pec), names_to = "modulo", values_to = "promedio") 
-
-
-
-# Mean and standar deviation of groups----
-## Grouping by state
-df.means.state <- df |>
-  group_by(treatment, entidad_federativa, modalidad) |>
-  summarise(mean=mean(score),
-            sd=sd(score),
-            n=n())
-
-
-## Without groups
 df.means <- df |>
   group_by(treatment, modalidad) |>
   summarise(mean=mean(score),
             median=median(score),
             sd=sd(score),
-            n=n())
+            n=n(), .groups = 'drop')
 
-## Means by group an topic----
-df.means.top <- df |> 
-  group_by(treatment) |>
-  summarise(across(c(agricola, pecuario), \(x) mean(x, na.rm=T)),
-            across(c(agricola, pecuario), \(x) median(x, na.rm=T), .names = "{.col}_median"))
-
-## Data frame for heat map----
 df.hm <- df.resumen |> select(entidad_federativa, p_1_:p_22_) |>
   pivot_longer(cols = c(p_1_:p_22_), names_to = "pregunta", values_to = "porcentaje")
-```
 
-```{r Crosstalk database, echo=FALSE}
+# Objetos para la pestaña de Crosstalk
+df.means.state <- df |>
+  group_by(treatment, entidad_federativa, modalidad) |>
+  summarise(mean=mean(score), sd=sd(score), n=n(), .groups = 'drop')
+
 df.score <- SharedData$new(df, key = ~entidad_federativa, group = "estado_r")
 df.score.state <- SharedData$new(df.means.state, key = ~entidad_federativa, group = "estado_r")
 ```
 
 # Situación a nivel nacional
 
+Row
+-----------------------------------------------------------------------
 
-**Datos con corte al `r {Sys.Date()}`**
+### **Resumen General de Operaciones**
+
+**Datos con corte al `r Sys.Date()`**
 
 A continuación se muestran los datos por entidad federativa y a nivel nacional sobre la evaluación presentada por las personas. El cuestionario consta de **22 preguntas**, divididas en dos módulos: **agrícola y pecuario** (con 11 preguntas cada uno).
 
-En total, se han registrado **`r {sum(n.states$n)}`** respuestas. El promedio general obtenido por las personas capacitadas es de **`r {round(mean(df$score),2)}`**.
+En total, se han registrado **`r sum(n.states$n)`** respuestas. El promedio general obtenido por las personas capacitadas es de **`r round(mean(df$score), 2)`**.
 
-**Respuestas obtenidad por entidad federativa**
+Las capacitaciones han sido impartidas de acuerdo con las características del territorio, disponibilidad de recursos y accesibilidad, por tipo de modalidad. El promedio de calificación es:
+
+- **Presencial**: **`r round(df.means$mean[df.means$modalidad=="Presencialmente"], 1)`**
+- **Virtual**: **`r round(df.means$mean[df.means$modalidad=="Virtualmente"], 1)`**
+- **Híbrido**: **`r round(df.means$mean[df.means$modalidad=="Híbrido"], 1)`**
+- ***Sin capacitación***: **`r round(df.means$mean[df.means$modalidad=="Sin capacitación"], 1)`**
+
+Row
+-----------------------------------------------------------------------
+
+### Respuestas por entidad federativa
 
 ```{r Tabla por estado, echo=FALSE, message=FALSE, warning=FALSE}
-
 n.states.tab <- df |>
   group_by(entidad_federativa) |>
   summarise(n=n(),
-         `Calificación
-         promedio`= round(mean(score), 1))
-
+         `Calificación promedio`= round(mean(score), 1))
 
 n.states.tab |>
   arrange(desc(n)) |>
@@ -152,9 +136,9 @@ n.states.tab |>
   reactable()
 ```
 
+### Mapa de desempeño nacional (ggplot)
 
 ```{r Mapa, echo=FALSE, warning=FALSE, message=FALSE}
-
 mx.map <- read_sf("/Users/miguelrosales/Desktop/Agricultura/MapasGeneral/Ents/00ent.shp", options = "ENCODING=LATIN1")
 
 n.state.b <- n.states.tab |> mutate(ent = case_when(
@@ -188,8 +172,8 @@ n.state.b <- n.states.tab |> mutate(ent = case_when(
   entidad_federativa == "Tamaulipas" ~ "28",
   entidad_federativa == "Tlaxcala" ~ "29",
   entidad_federativa == "Veracruz de Ignacio de la Llave" ~ "30",
-  entidad_federativa == "Yucatán" ~ "31",  # Código oficial INEGI
-  entidad_federativa == "Zacatecas" ~ "32" # Código oficial INEGI
+  entidad_federativa == "Yucatán" ~ "31",
+  entidad_federativa == "Zacatecas" ~ "32"
 ))
 
 mx.map <- left_join(mx.map, n.state.b, join_by(CVEGEO==ent))
@@ -201,61 +185,40 @@ mx.ent$Y <- st_coordinates(mx.ent.centros)[,"Y"]
 
 mx.ent |> 
   ggplot()+
-  geom_sf(aes(fill=`Calificación
-         promedio`)) +
-  scale_fill_gradient(name = "Calificación\npromedio", na.value = "gray90", low = "lightblue", high="darkblue")+
+  geom_sf(aes(fill=`Calificación promedio`)) +
+  scale_fill_gradient(name = "Calificación\npromedio", na.value = "gray90", low = "lightblue", high="#0062B8")+
   geom_point(aes(x=X, y=Y, size = n), color="green")+
   scale_size(name="Respuestas\nrecibidas", breaks = c(10,30,50,70))+
   theme_void()
-
-
 ```
 
+Row
+-----------------------------------------------------------------------
 
-Las capacitaciones han sido impartidas, de acuerdo con las características del territorio, disponibilidad de recursos y accesibilidad, por tipo de modalidad. El promedio de las personas que tomaron la capacitación es (de acuerdo con la modalidad):
-
-- **Presencial**: **`r {round(df.means$mean[df.means$modalidad=="Presencialmente"],1)}`**
-
-- **Virtual**: **`r {round(df.means$mean[df.means$modalidad=="Virtualmente"],1)}`**
-
-- **Híbrido**: **`r {round(df.means$mean[df.means$modalidad=="Híbrido"],1)}`**
-
-- ***Sin capacitación***: **`r {round(df.means$mean[df.means$modalidad=="Sin capacitación"],1)}`**
+### Promedio por modalidad de capacitación
 
 ```{r Calificaciones por modalidad, echo=FALSE}
 df.means |>
-  plot_ly(x = ~modalidad, y = ~round(mean,2), type = 'bar') %>%
-  layout(title = 'Promedio por modalidad de capacitación',
-         xaxis = list(
-           title=""
-           ), 
-         yaxis = list(
-           title=""
-           ))
-
+  plot_ly(x = ~modalidad, y = ~round(mean,2), type = 'bar', marker = list(color = '#0062B8')) %>%
+  layout(xaxis = list(title=""), yaxis = list(title=""))
 ```
-Por módulo (agrícola, pecuario), los resultados también pueden compararse por tipo de modalidad. Se observa que, a nivel nacional, los resultados en el módulo pecuario son más bajos que los registrados para el módulo agrícola.
+
+### Promedio por módulo de capacitación
 
 ```{r Calificación por módulo, echo=FALSE, message=FALSE, warning=FALSE}
 df |>
   group_by(modalidad) |>
   summarise(Agrícola = round(mean(agricola),1),
             Pecuario = round(mean(pecuario),1), .groups = 'drop') |>
-  plot_ly(x = ~modalidad, y = ~Agrícola, type = 'bar', name = "Agrícola") |>
-  add_trace(y = ~Pecuario, name="Pecuario") |>
-  layout(title = 'Promedio por módulo de capacitación\n(Calificación sobre 11 por módulo)',
-         xaxis = list(
-           title=""
-           ), 
-         yaxis = list(
-           title=""
-           ),
-         barmode='group')
-  
-
+  plot_ly(x = ~modalidad, y = ~Agrícola, type = 'bar', name = "Agrícola", marker = list(color = '#4CA2D6')) |>
+  add_trace(y = ~Pecuario, name="Pecuario", marker = list(color = '#003A70')) |>
+  layout(xaxis = list(title=""), yaxis = list(title=""), barmode='group')
 ```
 
-El mapa de calor se interpreta conforme a la fila (estado) y columna (pregunta). Los colores más oscuros (morado), representan un mayor número de respuestas correctas para la pregunta señalada en la columna o al pasar el cursor sobre el gráfico. Por ejemplo, **la primera fila, primera columna**, señala que, **en Zacatecas**, el **100%** de las personas que respondieron el cuestionario contestaron correctamente la **pregunta 1**, sobre cómo se calcula el rendimiento.
+Row
+-----------------------------------------------------------------------
+
+### Desempeño por Estado y Pregunta
 
 ```{r heat map, echo=FALSE, message=FALSE, warning=FALSE}
 graph.hm <- df.hm |>
@@ -290,65 +253,63 @@ ggplot(aes(x=pregunta, y=entidad_federativa, fill= porcentaje*100, text=label_f)
    theme_ipsum()
 
 ggplotly(graph.hm, tooltip="text")
-
-
 ```
+
 
 # Estadísticas por estado
 
-**Importante**: seleccione un estado para visualizar los gráficos correctamente. 
+Column {.sidebar}
+-----------------------------------------------------------------------
+
+### Filtros de Control
+
+**Importante**: Seleccione una entidad federativa de la lista inferior para sincronizar y filtrar todos los gráficos de esta sección.
 
 ```{r Filtro Entidad, echo=FALSE}
-filter_select(id = "filtro_entidad", label = "Entidad", sharedData = df.score, group = ~entidad_federativa, multiple = FALSE)
+filter_select(id = "filtro_entidad", label = "Seleccione Entidad", sharedData = df.score, group = ~entidad_federativa, multiple = FALSE)
 ```
+
+Column
+-----------------------------------------------------------------------
+
+### Distribución de calificaciones individuales
 
 ```{r Histograma, echo=FALSE}
 df.score |> 
   plot_ly(x=~score, type = "histogram",
-          marker = list(color = 'lightblue',
-                      line = list(color = 'black',
-                                  width = 1.5))) |>
-  layout(xaxis = list(title=""),
-         title="Distribución de calificaciones")
+          marker = list(color = '#0062B8',
+                      line = list(color = 'white', width = 1.5))) |>
+  layout(xaxis = list(title=""))
 ```
+
+### Promedio por modalidad de capacitación en el estado
 
 ```{r bar plot, echo=FALSE}
 df.score.state |>
-  plot_ly(x = ~modalidad, y = ~round(mean,2), type = 'bar') %>%
-  layout(title = 'Promedio por modalidad de capacitación',
-         xaxis = list(
-           title=""
-           ), 
-         yaxis = list(
-           title=""
-           ))
-
+  plot_ly(x = ~modalidad, y = ~round(mean,2), type = 'bar', marker = list(color = '#0062B8')) %>%
+  layout(xaxis = list(title=""), yaxis = list(title=""))
 ```
+
+Column
+-----------------------------------------------------------------------
+
+### Promedio por módulo de capacitación (Base 11 puntos)
 
 ```{r Promedio por módulo, echo=FALSE, message=FALSE, warning=FALSE}
 df.mm.grap <- df |> 
   group_by(entidad_federativa, modalidad) |>
-  summarise(#across(p_1:p_22, \(x) sum(x, na.rm = T)),
-            mean_agri = mean(agricola, na.rm=T),
-            mean_pec = mean(pecuario, na.rm=T))
-
+  summarise(mean_agri = mean(agricola, na.rm=T),
+            mean_pec = mean(pecuario, na.rm=T), .groups = 'drop')
 
 df.mm.grap <- SharedData$new(df.mm.grap, key = ~entidad_federativa, group = "estado_r")
 
 df.mm.grap |>
-plot_ly(x = ~modalidad, y = ~mean_agri, type = 'bar', name = "Agrícola") |>
-  add_trace(y = ~mean_pec, name="Pecuario") |>
-  layout(title = 'Promedio por módulo de capacitación\n(Calificación sobre 11 por módulo)',
-         xaxis = list(
-           title=""
-           ), 
-         yaxis = list(
-           title=""
-           ),
-         barmode='group')
-   
-
+plot_ly(x = ~modalidad, y = ~mean_agri, type = 'bar', name = "Agrícola", marker = list(color = '#4CA2D6')) |>
+  add_trace(y = ~mean_pec, name="Pecuario", marker = list(color = '#003A70')) |>
+  layout(xaxis = list(title=""), yaxis = list(title=""), barmode='group')
 ```
+
+### Respuestas recibidas por nivel de adscripción
 
 ```{r Pie Chart, echo=FALSE, message=FALSE, warning=FALSE}
 df.score.ent <- df |>
@@ -358,11 +319,8 @@ df.score.ent <- df |>
 df.score.ent <- SharedData$new(df.score.ent, key = ~entidad_federativa, group = "estado_r")
 
 df.score.ent |>
-  plot_ly(labels = ~lugar_de_trabajo, values = ~n, 
-          type="pie") |>
-  layout(title = 'Respuestas por nivel adscripción',
-         xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
+  plot_ly(labels = ~lugar_de_trabajo, values = ~n, type="pie",
+          marker = list(colors = c('#0062B8', '#4CA2D6', '#003A70', '#8AC3E6'))) |>
+  layout(xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
          yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
-
-
 ```
