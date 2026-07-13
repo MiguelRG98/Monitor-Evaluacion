@@ -188,7 +188,7 @@ mx.ent |>
   geom_sf(aes(fill=`Calificación promedio`)) +
   scale_fill_gradient(name = "Calificación\npromedio", na.value = "gray90", low = "lightblue", high="#0062B8")+
   geom_point(aes(x=X, y=Y, size = n), color="green")+
-  scale_size(name="Respuestas\nrecibidas", breaks = c(10,30,50,70))+
+  scale_size(name="Respuestas\nrecibidas")+
   theme_void()
 ```
 
@@ -279,7 +279,7 @@ df.score |>
   plot_ly(x=~score, type = "histogram",
           marker = list(color = '#0062B8',
                       line = list(color = 'white', width = 1.5))) |>
-  layout(xaxis = list(title=""))
+  layout(xaxis = list(title="Calificación"), yaxis = list(title="Frecuencia (n)"))
 ```
 
 ### Promedio por modalidad de capacitación en el estado
