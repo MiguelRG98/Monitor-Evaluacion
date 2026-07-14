@@ -17,7 +17,7 @@ rm(list = ls())
 library(pacman)
 p_load("tidyverse", "plotly", "flexdashboard", "reactable", "openxlsx", "hrbrthemes", "scales", "jsonlite",
        "janitor", "stringr", "stringi", "usethis", "crosstalk", 
-       "sf", "rmapshaper")
+       "sf", "rmapshaper", "ggmagnify")
 
 # 1. Enlace para tener datos actualizados 'todo el tiempo'. 
 url_fao_data <- "https://docs.google.com/spreadsheets/d/e/2PACX-1vSGcdqxColk_BnF7NgrgP6hzUnkFmA-rQfPE6ptC8FsLWPYzXoqq_2TCdnTj8Cm5l2POt0Lmf9YaXwW/pub?output=xlsx"
@@ -136,10 +136,11 @@ n.states.tab |>
   reactable()
 ```
 
-### Mapa de desempeño nacional (ggplot)
+### Mapa de desempeño nacional (respuestas y calificación promedio)
 
 ```{r Mapa, echo=FALSE, warning=FALSE, message=FALSE}
 mx.map <- read_sf("/Users/miguelrosales/Desktop/Agricultura/MapasGeneral/Ents/00ent.shp", options = "ENCODING=LATIN1")
+mx.map <- st_transform(mx.map, crs=4326)
 
 n.state.b <- n.states.tab |> mutate(ent = case_when(
   entidad_federativa == "Aguascalientes" ~ "01",
@@ -183,13 +184,33 @@ mx.ent.centros <- st_centroid(mx.ent)
 mx.ent$X <- st_coordinates(mx.ent.centros)[,"X"]
 mx.ent$Y <- st_coordinates(mx.ent.centros)[,"Y"]
 
+# Seleccionar la zona a la que queremos hacer zoom
+zona_saturada <- c(xmin = -100.5, xmax = -97.0, ymin = 18.5, ymax = 20.5)
+
+# Zona donde queremos que se proyecte el zoom
+zona_lupa <- c(xmin = -119.0, xmax = -107.0, ymin = 15.5, ymax = 22.0)
+
+
 mx.ent |> 
-  ggplot()+
+  ggplot() +
   geom_sf(aes(fill=`Calificación promedio`)) +
-  scale_fill_gradient(name = "Calificación\npromedio", na.value = "gray90", low = "lightblue", high="#0062B8")+
-  geom_point(aes(x=X, y=Y, size = n), color="green")+
-  scale_size(name="Respuestas\nrecibidas")+
+  scale_fill_gradient(name = "Calificación\npromedio", na.value = "gray90", low = "lightblue", high="#0062B8") +
+  geom_point(aes(x=X, y=Y, size = n*1.9), color="black") +
+  geom_point(aes(x=X, y=Y, size = n), color="green") +
+  scale_size(name="Respuestas\nrecibidas") +
+  #coord_sf(xlim = c(-100.5, -97.0), ylim = c(18.5, 20.5))
+  geom_magnify(
+    from = zona_saturada, 
+    to = zona_lupa, 
+    colour = "black",        # Color del borde del recuadro y el cono
+    linewidth = 0.5,         # Grosor de las líneas
+    proj.linetype = 1,       # Tipo de línea del cono (2 es punteada, 1 para sólida)
+    shadow = FALSE            # Le da un efecto de sombra elegante a la lupa exterior
+  ) +
+  
   theme_void()
+
+
 ```
 
 Row
