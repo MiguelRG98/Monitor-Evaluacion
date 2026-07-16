@@ -97,6 +97,131 @@ df.means.state <- df |>
 
 df.score <- SharedData$new(df, key = ~entidad_federativa, group = "estado_r")
 df.score.state <- SharedData$new(df.means.state, key = ~entidad_federativa, group = "estado_r")
+
+
+
+
+# Identify people of each CADER----
+## Loop to identify CADER Adscription----
+caders <- read.xlsx("/Users/miguelrosales/Library/CloudStorage/OneDrive-FoodandAgricultureOrganization/Scripts/Bases/20072025 BASE DATOS 1.xlsx", 
+                    startRow = 10) |>
+  clean_names() |>
+  mutate(entidad_federativa = str_to_sentence(estado),
+         longitud=as.numeric(longitud),
+         entidad_federativa = case_when(entidad_federativa=="Michoacan de ocampo" ~ "Michoacán de Ocampo",
+                                        entidad_federativa=="San luis potosi" ~ "San Luis Potosí",
+                                        entidad_federativa=="Nuevo leon" ~ "Nuevo León",
+                                        entidad_federativa=="Baja california" ~ "Baja California",
+                                        entidad_federativa=="Quintana roo" ~ "Quintana Roo",
+                                        entidad_federativa=="Queretaro" ~ "Querétaro de Arteaga",
+                                        entidad_federativa=="Coahuila de zaragoza" ~ "Coahuila de Zaragoza",
+                                        entidad_federativa=="Mexico" ~ "México",
+                                        entidad_federativa=="Yucatan" ~ "Yucatán",
+                                        entidad_federativa=="Veracruz de ignacio de la llave" ~ "Veracruz de Ignacio de la Llave",
+                                        entidad_federativa=="Baja california sur" ~ "Baja California Sur",
+                                        entidad_federativa=="Ciudad de mexico" ~ "Ciudad de México",
+                                        entidad_federativa=="Quintana roo" ~ "Quintanta Roo",
+                                        .default = entidad_federativa
+                                        ))
+
+caders <- caders |> 
+  distinct(estado, nombre_del_ddr, nombre_del_cader_vs_cab, longitud, latitud, entidad_federativa) |>
+  mutate(across(c(estado, nombre_del_cader_vs_cab), \(x) stri_trans_general(toupper(str_trim(x)), "latin-ascii")))
+
+palabras_clave <- "CADER|DISTRITO|CENTRO DE APOYO AL DESARROLLO RURAL|DISTRITO DE DESARROLLO RURAL"
+patron_regex <- str_glue("^(?:(?i)(?:{palabras_clave})\\s*\\d*|[^a-zA-ZÁ-ÿÑñ]*)[, .\\s]*(.*?)(?:\\b(?:DEL\\s+)?DDR\\b|\\bOREF\\b|[,.]|$)")
+
+
+df_np <- df |>
+  mutate(nom_cader = stri_trans_general(toupper(str_trim(nombre_del_cader_ddr_u_oref_donde_labora)), "latin-ascii"),
+         entidad_federativa = stri_trans_general(toupper(str_trim(entidad_federativa)), "latin-ascii")) |>
+  distinct(entidad_federativa, lugar_de_trabajo, nom_cader, email_address) |>
+  #filter(lugar_de_trabajo=="CADER") |>
+  mutate(
+    # Intento A (el original basado en CADER)
+    intento_cader = str_match(
+      nom_cader, 
+      "(?i)CADER\\s*\\d*\\s*(.*?)(?:\\b(?:DEL\\s+)?DDR\\b|\\bOREF\\b|[,.]|$)"
+    )[, 2],
+    intento_directo = str_match(nom_cader, patron_regex)[, 2],
+    
+    # Validamos que tengan letras reales, si no, se hacen NA
+    intento_cader = if_else(str_detect(intento_cader, "^[^a-zA-ZÁ-ÿÑñ]*$"), NA_character_, intento_cader),
+    intento_directo = if_else(str_detect(intento_directo, "^[^a-zA-ZÁ-ÿÑñ]*$"), NA_character_, intento_directo),
+    
+    # Fusionamos
+    extraido = coalesce(intento_cader, intento_directo),
+    
+    # Limpieza extrema final
+    extraido = str_remove(extraido, "^[^a-zA-ZÁ-ÿÑñ]+"),
+    extraido = str_remove(extraido, "^(?i)[a-z]['’\\s]+\\s*"),
+    extraido = str_remove_all(extraido, "\\b\\d+\\b"),
+    extraido = str_squish(extraido),
+    
+    # Si queda huérfana alguna palabra clave tras la limpieza, la hacemos NA
+    extraido = if_else(extraido == "" | is.na(extraido) | toupper(extraido) %in% c("CADER", "DISTRITO"), NA_character_, extraido)
+  ) %>% 
+  # Modificar nombres de estados
+  mutate(entidad_federativa = case_when(entidad_federativa=="QUERETARO DE ARTEAGA" ~ "QUERETARO",
+                                        .default = entidad_federativa),
+         aux = ifelse(lugar_de_trabajo == "CADER" | str_detect(nom_cader, pattern = "CADER"),1,0)) |>
+  filter(aux==1) |>
+  select(-intento_cader, -intento_directo, -aux)
+
+
+
+
+## Main loop----
+treshold = .70
+entidades = unique(toupper(df_np$entidad_federativa))
+i=1
+dicc.df <- tibble()
+
+
+for(entidad in entidades){
+  df.nc <- caders |> filter(estado==entidad) 
+  df.np.i <- df_np |> 
+    filter(entidad_federativa==entidad, lugar_de_trabajo=="CADER") |>
+    distinct(extraido, nom_cader)
+  
+  for(j in 1:nrow(df.np.i)){
+    idd.b <- stringsim(df.np.i$extraido[j], df.nc$nombre_del_cader_vs_cab, method="jw") > treshold
+    idd.m <- which.max(stringsim(df.np.i$extraido[j], df.nc$nombre_del_cader_vs_cab, method="jw"))
+    
+    index <- ifelse(idd.b[idd.m], idd.m, NA)
+    
+    dicc.df[i, "adscripcion"] <- df.np.i$extraido[j]
+    dicc.df[i, "cader"] <- ifelse(is.na(index), NA, df.nc$nombre_del_cader_vs_cab[index])
+    dicc.df[i, "entidad"] <- entidad
+    dicc.df[i, "nom_cader"] <- df.np.i$nom_cader[j]
+    dicc.df[i, "latitud"] <- ifelse(is.na(index), NA, df.nc$latitud[index])
+    dicc.df[i, "longitud"] <- ifelse(is.na(index), NA, df.nc$longitud[index])
+    
+    i=i+1
+  }
+}
+
+## Clean resulted data frame----
+dicc.fn <-  dicc.df |>
+  distinct(cader, nom_cader, latitud, longitud) |>
+  filter(!is.na(cader))
+
+df_ff <- df |>
+  mutate(nom_cader = stri_trans_general(toupper(str_trim(nombre_del_cader_ddr_u_oref_donde_labora)), "latin-ascii")) |>
+  left_join(dicc.fn) |>
+  group_by(entidad_federativa, cader, latitud, longitud) |>
+  summarise(n=n(),
+            promedio=mean(score)) |>
+  mutate(longitud = as.numeric(longitud),
+         flag = "Con respuestas") |>
+  filter(!is.na(longitud)) |>
+  ungroup()
+
+
+df_ff <- left_join(caders, df_ff, join_by(entidad_federativa, nombre_del_cader_vs_cab==cader), suffix = c("", ".y"))
+
+df_ff$flag <- ifelse(is.na(df_ff$flag), "Sin respuestas recibidas", df_ff$flag)
+
 ```
 
 # Situación a nivel nacional
@@ -306,104 +431,17 @@ df.score |>
 ### Respuestas rescibidas de CADERs
 
 ```{r Mapa CADERs con Respuestas, echo=F}
-# Identify people of each CADER----
-## Loop to identify CADER Adscription----
-caders <- read.xlsx("/Users/miguelrosales/Library/CloudStorage/OneDrive-FoodandAgricultureOrganization/Scripts/Bases/20072025 BASE DATOS 1.xlsx", 
-                    startRow = 10) |>
-  clean_names() 
+#Intentamos hacer la respuesta de Gemini. 
+shp <- read_sf("/Users/miguelrosales/Desktop/Agricultura/MapasGeneral/Ents/00ent.shp", options="ENCODING=LATIN1")
+shp <- st_transform(shp, crs = 4326) 
+shp <- st_centroid(shp)
 
-caders <- caders |> 
-  distinct(estado, nombre_del_ddr, nombre_del_cader_vs_cab, longitud, latitud) |>
-  mutate(across(c(estado, nombre_del_cader_vs_cab), \(x) stri_trans_general(toupper(str_trim(x)), "latin-ascii")))
+shp$X <- st_coordinates(shp)[,"X"]
+shp$Y <- st_coordinates(shp)[,"Y"]
 
-palabras_clave <- "CADER|DISTRITO|CENTRO DE APOYO AL DESARROLLO RURAL|DISTRITO DE DESARROLLO RURAL"
-patron_regex <- str_glue("^(?:(?i)(?:{palabras_clave})\\s*\\d*|[^a-zA-ZÁ-ÿÑñ]*)[, .\\s]*(.*?)(?:\\b(?:DEL\\s+)?DDR\\b|\\bOREF\\b|[,.]|$)")
+st_geometry(shp) <- NULL
 
-
-df_np <- df |>
-  mutate(nom_cader = stri_trans_general(toupper(str_trim(nombre_del_cader_ddr_u_oref_donde_labora)), "latin-ascii"),
-         entidad_federativa = stri_trans_general(toupper(str_trim(entidad_federativa)), "latin-ascii")) |>
-  distinct(entidad_federativa, lugar_de_trabajo, nom_cader, email_address) |>
-  #filter(lugar_de_trabajo=="CADER") |>
-  mutate(
-    # Intento A (el original basado en CADER)
-    intento_cader = str_match(
-      nom_cader, 
-      "(?i)CADER\\s*\\d*\\s*(.*?)(?:\\b(?:DEL\\s+)?DDR\\b|\\bOREF\\b|[,.]|$)"
-    )[, 2],
-    intento_directo = str_match(nom_cader, patron_regex)[, 2],
-    
-    # Validamos que tengan letras reales, si no, se hacen NA
-    intento_cader = if_else(str_detect(intento_cader, "^[^a-zA-ZÁ-ÿÑñ]*$"), NA_character_, intento_cader),
-    intento_directo = if_else(str_detect(intento_directo, "^[^a-zA-ZÁ-ÿÑñ]*$"), NA_character_, intento_directo),
-    
-    # Fusionamos
-    extraido = coalesce(intento_cader, intento_directo),
-    
-    # Limpieza extrema final
-    extraido = str_remove(extraido, "^[^a-zA-ZÁ-ÿÑñ]+"),
-    extraido = str_remove(extraido, "^(?i)[a-z]['’\\s]+\\s*"),
-    extraido = str_remove_all(extraido, "\\b\\d+\\b"),
-    extraido = str_squish(extraido),
-    
-    # Si queda huérfana alguna palabra clave tras la limpieza, la hacemos NA
-    extraido = if_else(extraido == "" | is.na(extraido) | toupper(extraido) %in% c("CADER", "DISTRITO"), NA_character_, extraido)
-  ) %>% 
-  # Modificar nombres de estados
-  mutate(entidad_federativa = case_when(entidad_federativa=="QUERETARO DE ARTEAGA" ~ "QUERETARO",
-                                        .default = entidad_federativa),
-         aux = ifelse(lugar_de_trabajo == "CADER" | str_detect(nom_cader, pattern = "CADER"),1,0)) |>
-  filter(aux==1) |>
-  select(-intento_cader, -intento_directo, -aux)
-
-
-
-
-## Main loop----
-treshold = .70
-entidades = unique(toupper(df_np$entidad_federativa))
-i=1
-dicc.df <- tibble()
-
-
-for(entidad in entidades){
-  df.nc <- caders |> filter(estado==entidad) 
-  df.np.i <- df_np |> 
-    filter(entidad_federativa==entidad, lugar_de_trabajo=="CADER") |>
-    distinct(extraido, nom_cader)
-  
-  for(j in 1:nrow(df.np.i)){
-    idd.b <- stringsim(df.np.i$extraido[j], df.nc$nombre_del_cader_vs_cab, method="jw") > treshold
-    idd.m <- which.max(stringsim(df.np.i$extraido[j], df.nc$nombre_del_cader_vs_cab, method="jw"))
-    
-    index <- ifelse(idd.b[idd.m], idd.m, NA)
-    
-    dicc.df[i, "adscripcion"] <- df.np.i$extraido[j]
-    dicc.df[i, "cader"] <- ifelse(is.na(index), NA, df.nc$nombre_del_cader_vs_cab[index])
-    dicc.df[i, "entidad"] <- entidad
-    dicc.df[i, "nom_cader"] <- df.np.i$nom_cader[j]
-    dicc.df[i, "latitud"] <- ifelse(is.na(index), NA, df.nc$latitud[index])
-    dicc.df[i, "longitud"] <- ifelse(is.na(index), NA, df.nc$longitud[index])
-    
-    i=i+1
-  }
-}
-
-## Clean resulted data frame----
-dicc.fn <-  dicc.df |>
-  distinct(cader, nom_cader, latitud, longitud) |>
-  filter(!is.na(cader))
-
-df_ff <- df |>
-  mutate(nom_cader = stri_trans_general(toupper(str_trim(nombre_del_cader_ddr_u_oref_donde_labora)), "latin-ascii")) |>
-  left_join(dicc.fn) |>
-  group_by(entidad_federativa, cader, latitud, longitud) |>
-  summarise(n=n(),
-            promedio=mean(score)) |>
-  mutate(longitud = as.numeric(longitud)) |>
-  filter(!is.na(longitud)) |>
-  ungroup()
-
+df_ff <- left_join(df_ff, shp, join_by(entidad_federativa==NOMGEO))
 
 # 2. Vincular el DF al objeto compartido de Crosstalk 
 # (Usa el mismo group = "estado_r" si quieres que se sincronice con tus otros gráficos)
@@ -416,15 +454,19 @@ df_compartido_mapa |>
     lat = ~latitud,
     type = 'scattermapbox',
     mode = 'markers',
+    color = ~flag,
+    colors = c(
+      "Con respuestas" = "#003A70",   # Azul FAO principal
+      "Sin respuestas recibidas" = "#E06666"   # Rojo suave/Coral para alertar
+    ),
     # Personalizamos el marcador con el Azul FAO
     marker = list(
       size = 10, 
-      color = '#0062B8', 
-      opacity = 0.8
+      opacity = .8
     ),
     # Agregamos toda la información que quieras al pasar el cursor (Hover)
     text = ~paste0(
-      "<b>CADER:</b> ", cader, "<br>",
+      "<b>CADER:</b> ", nombre_del_cader_vs_cab, "<br>",
       "<b>Estado:</b> ", entidad_federativa, "<br>",
       "<b>Calificación:</b> ", promedio, "<br>",
       "<b>Respuestas:</b>", n
@@ -433,9 +475,15 @@ df_compartido_mapa |>
   ) |>
   layout(
     mapbox = list(
-      style = "open-street-map", # Mapa base gratuito y limpio
-      zoom = 4,                  # Nivel de zoom inicial para México
+      style = "carto-positron", # Mapa base gratuito y limpio
+      zoom = 4, 
       center = list(lon = -102.5, lat = 23.6) # Centro aproximado del país
+    ),
+    legend = list(
+      orientation = "h", 
+      y = 0.05, 
+      x = 0.5, 
+      xanchor = "center"
     ),
     margin = list(l = 0, r = 0, t = 0, b = 0) # Aprovecha todo el espacio del contenedor
   )
