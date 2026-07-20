@@ -14,6 +14,7 @@ output:
 ```{r setup, include=FALSE}
 rm(list = ls())
 # 0. Leer librerías.
+Sys.setlocale("LC_TIME", "es_ES.UTF-8")
 library(pacman)
 p_load("tidyverse", "plotly", "flexdashboard", "reactable", "openxlsx", "hrbrthemes", "scales", "jsonlite",
        "janitor", "stringr", "stringi", "usethis", "crosstalk", 
@@ -231,7 +232,7 @@ Row
 
 ### **Resumen General de Operaciones**
 
-**Datos con corte al `r Sys.Date()`**
+**Datos con corte al `r format(Sys.Date(), "%d %B de %Y")`**
 
 A continuación se muestran los datos por entidad federativa y a nivel nacional sobre la evaluación presentada por las personas. El cuestionario consta de **22 preguntas**, divididas en dos módulos: **agrícola y pecuario** (con 11 preguntas cada uno).
 
