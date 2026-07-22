@@ -64,41 +64,6 @@ df <-  df |>
 df <- df |>
   mutate(agricola = rowSums(pick(p_1:p_11), na.rm = T),
          pecuario = rowSums(pick(p_12:p_22), na.rm = T))
-                                                
-# Resultados agregados
-df.resumen <- df |> 
-  group_by(entidad_federativa) |>
-  summarise(across(p_1:p_22, \(x) sum(x, na.rm = T)),
-            mean_agri = mean(agricola, na.rm=T),
-            mean_pec = mean(pecuario, na.rm=T))
-
-n.states <- df |>
-  group_by(entidad_federativa) |>
-  count()
-
-df.resumen <- left_join(df.resumen, n.states)
-
-df.resumen <- df.resumen |>
-  mutate(across(c(p_1:p_22), \(x) x/n, .names = "{.col}_")) 
-
-df.means <- df |>
-  group_by(treatment, modalidad) |>
-  summarise(mean=mean(score),
-            median=median(score),
-            sd=sd(score),
-            n=n(), .groups = 'drop')
-
-df.hm <- df.resumen |> select(entidad_federativa, p_1_:p_22_) |>
-  pivot_longer(cols = c(p_1_:p_22_), names_to = "pregunta", values_to = "porcentaje")
-
-# Objetos para la pestaña de Crosstalk
-df.means.state <- df |>
-  group_by(treatment, entidad_federativa, modalidad) |>
-  summarise(mean=mean(score), sd=sd(score), n=n(), .groups = 'drop')
-
-df.score <- SharedData$new(df, key = ~entidad_federativa, group = "estado_r")
-df.score.state <- SharedData$new(df.means.state, key = ~entidad_federativa, group = "estado_r")
-
 
 
 
@@ -126,7 +91,7 @@ caders <- read.xlsx("/Users/miguelrosales/Library/CloudStorage/OneDrive-FoodandA
                                         ))
 
 caders <- caders |> 
-  distinct(estado, nombre_del_ddr, nombre_del_cader_vs_cab, longitud, latitud, entidad_federativa) |>
+  distinct(estado, nombre_del_ddr, nombre_del_cader_vs_cab, longitud, latitud, entidad_federativa, sigla_edo_of_rep) |>
   mutate(across(c(estado, nombre_del_cader_vs_cab), \(x) stri_trans_general(toupper(str_trim(x)), "latin-ascii")))
 
 palabras_clave <- "CADER|DISTRITO|CENTRO DE APOYO AL DESARROLLO RURAL|DISTRITO DE DESARROLLO RURAL"
@@ -183,7 +148,7 @@ for(entidad in entidades){
   df.nc <- caders |> filter(estado==entidad) 
   df.np.i <- df_np |> 
     filter(entidad_federativa==entidad, lugar_de_trabajo=="CADER") |>
-    distinct(extraido, nom_cader)
+    distinct(extraido, nom_cader, email_address)
   
   for(j in 1:nrow(df.np.i)){
     idd.b <- stringsim(df.np.i$extraido[j], df.nc$nombre_del_cader_vs_cab, method="jw") > treshold
@@ -194,9 +159,11 @@ for(entidad in entidades){
     dicc.df[i, "adscripcion"] <- df.np.i$extraido[j]
     dicc.df[i, "cader"] <- ifelse(is.na(index), NA, df.nc$nombre_del_cader_vs_cab[index])
     dicc.df[i, "entidad"] <- entidad
+    dicc.df[i, "email_address"] <- df.np.i$email_address[j]
     dicc.df[i, "nom_cader"] <- df.np.i$nom_cader[j]
     dicc.df[i, "latitud"] <- ifelse(is.na(index), NA, df.nc$latitud[index])
     dicc.df[i, "longitud"] <- ifelse(is.na(index), NA, df.nc$longitud[index])
+    dicc.df[i, "oref"] <- ifelse(is.na(index), NA, df.nc$sigla_edo_of_rep[index])
     
     i=i+1
   }
@@ -204,13 +171,19 @@ for(entidad in entidades){
 
 ## Clean resulted data frame----
 dicc.fn <-  dicc.df |>
-  distinct(cader, nom_cader, latitud, longitud) |>
+  distinct(cader, nom_cader, latitud, longitud, oref, email_address) |>
   filter(!is.na(cader))
+
+# Generar una columna de nuevos estados para agregar la Región Lagunera. 
+relacion <- dicc.fn |> distinct(cader, latitud, longitud, oref, email_address)
+df <- df |> left_join(relacion) |> 
+  mutate(entidad_federativa_2 = case_when(oref =="RG" ~ "Región Lagunera",
+                                          .default = entidad_federativa))
 
 df_ff <- df |>
   mutate(nom_cader = stri_trans_general(toupper(str_trim(nombre_del_cader_ddr_u_oref_donde_labora)), "latin-ascii")) |>
   left_join(dicc.fn) |>
-  group_by(entidad_federativa, cader, latitud, longitud) |>
+  group_by(entidad_federativa, cader, latitud, longitud, entidad_federativa_2) |>
   summarise(n=n(),
             promedio=mean(score)) |>
   mutate(longitud = as.numeric(longitud),
@@ -222,6 +195,42 @@ df_ff <- df |>
 df_ff <- left_join(caders, df_ff, join_by(entidad_federativa, nombre_del_cader_vs_cab==cader), suffix = c("", ".y"))
 
 df_ff$flag <- ifelse(is.na(df_ff$flag), "Sin respuestas recibidas", df_ff$flag)
+
+
+
+# Resultados agregados
+df.resumen <- df |> 
+  group_by(entidad_federativa_2) |>
+  summarise(across(p_1:p_22, \(x) sum(x, na.rm = T)),
+            mean_agri = mean(agricola, na.rm=T),
+            mean_pec = mean(pecuario, na.rm=T))
+
+n.states <- df |>
+  group_by(entidad_federativa_2) |>
+  count()
+
+df.resumen <- left_join(df.resumen, n.states)
+
+df.resumen <- df.resumen |>
+  mutate(across(c(p_1:p_22), \(x) x/n, .names = "{.col}_")) 
+
+df.means <- df |>
+  group_by(treatment, modalidad) |>
+  summarise(mean=mean(score),
+            median=median(score),
+            sd=sd(score),
+            n=n(), .groups = 'drop')
+
+df.hm <- df.resumen |> select(entidad_federativa_2, p_1_:p_22_) |>
+  pivot_longer(cols = c(p_1_:p_22_), names_to = "pregunta", values_to = "porcentaje")
+
+# Objetos para la pestaña de Crosstalk
+df.means.state <- df |>
+  group_by(treatment, entidad_federativa_2, modalidad) |>
+  summarise(mean=mean(score), sd=sd(score), n=n(), .groups = 'drop')
+
+df.score <- SharedData$new(df, key = ~entidad_federativa_2, group = "estado_r")
+df.score.state <- SharedData$new(df.means.state, key = ~entidad_federativa_2, group = "estado_r")
 
 ```
 
@@ -236,7 +245,7 @@ Row
 
 A continuación se muestran los datos por entidad federativa y a nivel nacional sobre la evaluación presentada por las personas. El cuestionario consta de **22 preguntas**, divididas en dos módulos: **agrícola y pecuario** (con 11 preguntas cada uno).
 
-En total, se han registrado **`r sum(n.states$n)`** respuestas. El promedio general obtenido por las personas capacitadas es de **`r round(mean(df$score), 2)`**.
+En total, se han registrado **`r sum(n.states$n)`** respuestas. El promedio general obtenido por las personas que han respondido la encuesta es de **`r round(mean(df$score), 2)`**.
 
 Las capacitaciones han sido impartidas de acuerdo con las características del territorio, disponibilidad de recursos y accesibilidad, por tipo de modalidad. El promedio de calificación es:
 
@@ -252,13 +261,13 @@ Row
 
 ```{r Tabla por estado, echo=FALSE, message=FALSE, warning=FALSE}
 n.states.tab <- df |>
-  group_by(entidad_federativa) |>
+  group_by(entidad_federativa_2) |>
   summarise(n=n(),
          `Calificación promedio`= round(mean(score), 1))
 
 n.states.tab |>
   arrange(desc(n)) |>
-  rename("Entidad"="entidad_federativa", "Respuestas"="n") |>
+  rename("Entidad"="entidad_federativa_2", "Respuestas"="n") |>
   reactable()
 ```
 
@@ -267,6 +276,11 @@ n.states.tab |>
 ```{r Mapa, echo=FALSE, warning=FALSE, message=FALSE}
 mx.map <- read_sf("/Users/miguelrosales/Desktop/Agricultura/MapasGeneral/Ents/00ent.shp", options = "ENCODING=LATIN1")
 mx.map <- st_transform(mx.map, crs=4326)
+
+n.states.tab <- df |>
+  group_by(entidad_federativa) |>
+  summarise(n=n(),
+         `Calificación promedio`= round(mean(score), 1))
 
 n.state.b <- n.states.tab |> mutate(ent = case_when(
   entidad_federativa == "Aguascalientes" ~ "01",
@@ -393,8 +407,8 @@ graph.hm <- df.hm |>
                                 pregunta=="p_20_"~"¿Cuál opción describe mejor el ganado en engorda?",
                                 pregunta=="p_21_"~"¿Cuál es la fórmula correcta para calcular el volumen total en pie?",
                                 pregunta=="p_22_"~"Si al revisar la información de un rastro municipal notas que el peso promedio por cabeza de los bovinos sacrificados aumentó drásticamente respecto al mes anterior, ¿cuál es la acción de validación correcta antes de capturar?"),
-         label_f = paste0(entidad_federativa, "\n", l_pregunta, "\n", "Aciertos (%): ", round(porcentaje*100,1))) |>
-ggplot(aes(x=pregunta, y=entidad_federativa, fill= porcentaje*100, text=label_f)) + 
+         label_f = paste0(entidad_federativa_2, "\n", l_pregunta, "\n", "Aciertos (%): ", round(porcentaje*100,1))) |>
+ggplot(aes(x=pregunta, y=entidad_federativa_2, fill= porcentaje*100, text=label_f)) + 
   geom_tile(colour = 'white')+
   scale_fill_viridis_c(name = "Porcentaje de\n respuestas correctas", direction = -1) +
    theme_ipsum()
@@ -413,7 +427,7 @@ Column {.sidebar}
 **Importante**: Seleccione una entidad federativa de la lista inferior para sincronizar y filtrar todos los gráficos de esta sección.
 
 ```{r Filtro Entidad, echo=FALSE}
-filter_select(id = "filtro_entidad", label = "Seleccione Entidad", sharedData = df.score, group = ~entidad_federativa, multiple = FALSE)
+filter_select(id = "filtro_entidad", label = "Seleccione Entidad", sharedData = df.score, group = ~entidad_federativa_2, multiple = FALSE)
 ```
 
 Column
@@ -446,7 +460,7 @@ df_ff <- left_join(df_ff, shp, join_by(entidad_federativa==NOMGEO))
 
 # 2. Vincular el DF al objeto compartido de Crosstalk 
 # (Usa el mismo group = "estado_r" si quieres que se sincronice con tus otros gráficos)
-df_compartido_mapa <- SharedData$new(df_ff, key = ~entidad_federativa, group = "estado_r")
+df_compartido_mapa <- SharedData$new(df_ff, key = ~entidad_federativa_2, group = "estado_r")
 
 # 3. Renderizar el mapa interactivo con Plotly usando Mapbox/OpenStreetMap
 df_compartido_mapa |>
@@ -468,7 +482,7 @@ df_compartido_mapa |>
     # Agregamos toda la información que quieras al pasar el cursor (Hover)
     text = ~paste0(
       "<b>CADER:</b> ", nombre_del_cader_vs_cab, "<br>",
-      "<b>Estado:</b> ", entidad_federativa, "<br>",
+      "<b>Estado:</b> ", entidad_federativa_2, "<br>",
       "<b>Calificación:</b> ", promedio, "<br>",
       "<b>Respuestas:</b>", n
     ),
@@ -501,11 +515,11 @@ Column
 
 ```{r Promedio por módulo, echo=FALSE, message=FALSE, warning=FALSE}
 df.mm.grap <- df |> 
-  group_by(entidad_federativa, modalidad) |>
+  group_by(entidad_federativa_2, modalidad) |>
   summarise(mean_agri = mean(agricola, na.rm=T),
             mean_pec = mean(pecuario, na.rm=T), .groups = 'drop')
 
-df.mm.grap <- SharedData$new(df.mm.grap, key = ~entidad_federativa, group = "estado_r")
+df.mm.grap <- SharedData$new(df.mm.grap, key = ~entidad_federativa_2, group = "estado_r")
 
 df.mm.grap |>
 plot_ly(x = ~modalidad, y = ~mean_agri, type = 'bar', name = "Agrícola", marker = list(color = '#4CA2D6')) |>
