@@ -65,7 +65,11 @@ df <- df |>
   mutate(agricola = rowSums(pick(p_1:p_11), na.rm = T),
          pecuario = rowSums(pick(p_12:p_22), na.rm = T))
 
-
+# Modificar calificaciones para hacerlas sobre 10-----
+df <- df |>
+  mutate(score = round((score/22)*10, 1),
+         agricola = round(agricola/11*10, 1),
+         pecuario = round(pecuario/11*10, 1))
 
 # Identify people of each CADER----
 ## Loop to identify CADER Adscription----
@@ -180,10 +184,11 @@ df <- df |> left_join(relacion) |>
   mutate(entidad_federativa_2 = case_when(oref =="RG" ~ "Región Lagunera",
                                           .default = entidad_federativa))
 
+
 df_ff <- df |>
   mutate(nom_cader = stri_trans_general(toupper(str_trim(nombre_del_cader_ddr_u_oref_donde_labora)), "latin-ascii")) |>
   left_join(dicc.fn) |>
-  group_by(entidad_federativa, cader, latitud, longitud, entidad_federativa_2) |>
+  group_by(cader, latitud, longitud, entidad_federativa_2) |>
   summarise(n=n(),
             promedio=mean(score)) |>
   mutate(longitud = as.numeric(longitud),
@@ -191,8 +196,11 @@ df_ff <- df |>
   filter(!is.na(longitud)) |>
   ungroup()
 
-
-df_ff <- left_join(caders, df_ff, join_by(entidad_federativa, nombre_del_cader_vs_cab==cader), suffix = c("", ".y"))
+caders <- caders |>
+  mutate(entidad_federativa_2 = case_when(sigla_edo_of_rep == "RG" ~ "Región Lagunera",
+                                          .default = entidad_federativa))
+  
+df_ff <- left_join(caders, df_ff, join_by(entidad_federativa_2, nombre_del_cader_vs_cab==cader), suffix = c("", ".y"))
 
 df_ff$flag <- ifelse(is.na(df_ff$flag), "Sin respuestas recibidas", df_ff$flag)
 
@@ -437,10 +445,18 @@ Column
 
 ```{r Histograma, echo=FALSE}
 df.score |> 
-  plot_ly(x=~score, type = "histogram",
+  plot_ly(x=~score, type = "histogram", 
+          xbins = list(start = 1,    
+                       end = 10,    
+                       size = 1),
           marker = list(color = '#0062B8',
                       line = list(color = 'white', width = 1.5))) |>
   layout(xaxis = list(title="Calificación"), yaxis = list(title="Frecuencia (n)"))
+
+
+
+
+
 ```
 
 ### Respuestas rescibidas de CADERs
@@ -511,7 +527,7 @@ df_compartido_mapa |>
 Column
 -----------------------------------------------------------------------
 
-### Promedio por módulo de capacitación (11 puntos posibles)
+### Promedio por módulo de capacitación
 
 ```{r Promedio por módulo, echo=FALSE, message=FALSE, warning=FALSE}
 df.mm.grap <- df |> 
@@ -524,14 +540,77 @@ df.mm.grap <- SharedData$new(df.mm.grap, key = ~entidad_federativa_2, group = "e
 df.mm.grap |>
 plot_ly(x = ~modalidad, y = ~mean_agri, type = 'bar', name = "Agrícola", marker = list(color = '#4CA2D6')) |>
   add_trace(y = ~mean_pec, name="Pecuario", marker = list(color = '#003A70')) |>
-  layout(xaxis = list(title=""), yaxis = list(title=""), barmode='group')
+  layout(xaxis = list(title=""), yaxis = list(title=""), barmode='group',
+         shapes = list(
+           list(type='line',
+                text = mean(df$agricola),
+                       line = list(color = '#4CA2D6'),
+                       xref="paper",
+                       yref="y",
+                       y0 = mean(df$agricola),
+                       y1 = mean(df$agricola),
+                       x0 = 0,
+                       x1 = 1
+                       ),
+           list(type='line',
+                       line = list(color = '#003A70'),
+                       xref="paper",
+                       yref="y",
+                       y0 = mean(df$pecuario),
+                       y1 = mean(df$pecuario),
+                       x0 = 0,
+                       x1 = 1
+                       )
+         ),
+         annotations = list(
+           list(x = 1,
+                y = mean(df$agricola)*1.05,
+                font = list(size = 12, color = "#4CA2D6"),
+                text = round(mean(df$agricola),1),
+                xref = "paper",
+                yref = "y",
+                #xanchor = "center",
+                #yanchor = "bottom",
+                showarrow = FALSE),
+           list(x = 1,
+                y = mean(df$pecuario)*1.05,
+                font = list(size = 12, color = "#003A70"),
+                text = round(mean(df$pecuario),1),
+                xref = "paper",
+                yref = "y",
+                #xanchor = "center",
+                #yanchor = "bottom",
+                showarrow = FALSE)
+             
+           )) 
+
+
 ```
 ### Promedio por modalidad de capacitación en el estado
 
 ```{r bar plot, echo=FALSE}
 df.score.state |>
   plot_ly(x = ~modalidad, y = ~round(mean,2), type = 'bar', marker = list(color = '#0062B8')) %>%
-  layout(xaxis = list(title=""), yaxis = list(title=""))
+  layout(xaxis = list(title=""), yaxis = list(title=""),
+         shapes = list(type='line',
+                       line = list(color = 'red'),
+                       xref="paper",
+                       yref="y",
+                       y0 = mean(df$score),
+                       y1 = mean(df$score),
+                       x0 = 0,
+                       x1 = 1
+                       ),
+         annotations = list(
+           list(x = 1,
+                y = mean(df$score)*1.05,
+                font = list(size = 12, color = "red"),
+                text = round(mean(df$score),1),
+                xref = "paper",
+                yref = "y",
+                #xanchor = "center",
+                #yanchor = "bottom",
+                showarrow = FALSE)))
 ```
 
 
@@ -539,10 +618,10 @@ df.score.state |>
 
 ```{r Pie Chart, echo=FALSE, message=FALSE, warning=FALSE}
 df.score.ent <- df |>
-  group_by(lugar_de_trabajo, entidad_federativa) |>
+  group_by(lugar_de_trabajo, entidad_federativa_2) |>
   count()
 
-df.score.ent <- SharedData$new(df.score.ent, key = ~entidad_federativa, group = "estado_r")
+df.score.ent <- SharedData$new(df.score.ent, key = ~entidad_federativa_2, group = "estado_r")
 
 df.score.ent |>
   plot_ly(labels = ~lugar_de_trabajo, values = ~n, type="pie",
