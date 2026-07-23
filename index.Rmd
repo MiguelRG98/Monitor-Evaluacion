@@ -614,17 +614,17 @@ df.score.state |>
 ```
 
 
-### Respuestas recibidas por nivel de adscripción
+### Capacitación recibida
 
 ```{r Pie Chart, echo=FALSE, message=FALSE, warning=FALSE}
 df.score.ent <- df |>
-  group_by(lugar_de_trabajo, entidad_federativa_2) |>
+  group_by(modalidad, entidad_federativa_2) |>
   count()
 
 df.score.ent <- SharedData$new(df.score.ent, key = ~entidad_federativa_2, group = "estado_r")
 
 df.score.ent |>
-  plot_ly(labels = ~lugar_de_trabajo, values = ~n, type="pie",
+  plot_ly(labels = ~modalidad, values = ~n, type="pie",
           marker = list(colors = c('#0062B8', '#4CA2D6', '#003A70', '#8AC3E6'))) |>
   layout(xaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE),
          yaxis = list(showgrid = FALSE, zeroline = FALSE, showticklabels = FALSE))
